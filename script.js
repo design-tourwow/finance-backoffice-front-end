@@ -124,12 +124,10 @@
         if (count === 0) {
           selectedText.textContent = trigger.dataset.placeholder || 'เลือก';
           trigger.classList.add('placeholder');
-        } else if (count === 1) {
-          const label = checkboxes[0].nextElementSibling.textContent;
-          selectedText.innerHTML = `${label}`;
-          trigger.classList.remove('placeholder');
         } else {
-          selectedText.innerHTML = `เลือกแล้ว <span class="multi-select-count">${count}</span>`;
+          // Show all selected items as comma-separated text
+          const labels = Array.from(checkboxes).map(cb => cb.nextElementSibling.textContent);
+          selectedText.textContent = labels.join(', ');
           trigger.classList.remove('placeholder');
         }
         
