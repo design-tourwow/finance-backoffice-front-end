@@ -1733,21 +1733,39 @@ function initShowAllButtons() {
 
   // Export to CSV
   function exportToCSV(images) {
-    const headers = ['ลำดับ', 'ชื่อรูป', 'ประเทศ', 'Wholesale', 'รหัสทัวร์', 'จำนวนใช้ซ้ำ', 'วันที่อัปเดต', 'ใช้ล่าสุด', 'จำนวนโปรแกรม', 'โปรแกรมทัวร์'];
+    const headers = ['ลำดับ', 'ชื่อรูป', 'จำนวนรวมใช้ซ้ำ', 'Banner ลำดับที่ 1', 'Banner ลำดับที่ 2 ขึ้นไป', 'รายละเอียดทัวร์', 'ประเทศ', 'วันที่อัปเดต', 'โปรแกรมทัวร์'];
     
     const rows = images.map((img, index) => {
-      const programs = img.programs.map(p => p.program_code || p.code).join('; ');
-      const lastUsed = DataFormatter.formatDateThai(img.updatedAt) || '-';
+      // Get programs list
+      const programs = (img.pre_product_files || [])
+        .map(file => {
+          const tourCode = file.pre_product?.product_tour_code || '-';
+          const wholesale = file.pre_product?.supplier?.name_en || '-';
+          return `${tourCode} (${wholesale})`;
+        })
+        .join('; ');
+      
+      // Count countries
+      const countryCount = {};
+      const imageCountries = img.countries || [];
+      imageCountries.forEach(country => {
+        const countryName = country.name_th || country.name_en || 'Unknown';
+        countryCount[countryName] = (countryCount[countryName] || 0) + 1;
+      });
+      const countries = Object.entries(countryCount)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], ['th', 'en']))
+        .map(([name, count]) => `${name} (${count})`)
+        .join(', ');
+      
       return [
         index + 1,
-        img.name,
-        countryTranslation[img.country] || img.country,
-        img.wholesale || '-',
-        img.tourCode || '-',
-        img.usageCount,
-        DataFormatter.formatDateThai(img.updatedAt) || '-',
-        lastUsed,
-        img.programs.length,
+        img.name || '-',
+        img.file_count || 0,
+        img.first_banner_count || 0,
+        img.after_first_banner_count || 0,
+        img.day_detail_count || 0,
+        countries || '-',
+        formatDateThai(img.last_file_created_at) || '-',
         programs || '-'
       ];
     });
@@ -1777,74 +1795,226 @@ function initShowAllButtons() {
     
     let html = `
       <!DOCTYPE html>
-      <html>
+      <html lang="th">
       <head>
         <meta charset="UTF-8">
-        <title>Tour Images Report</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>รายงานรูปภาพทัวร์ - Tour Image Manager</title>
+        <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <style>
-          body { font-family: 'Sarabun', Arial, sans-serif; padding: 20px; }
-          h1 { color: #4a7ba7; text-align: center; }
-          .meta { text-align: center; color: #666; margin-bottom: 30px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
-          th { background-color: #4a7ba7; color: white; font-weight: bold; }
-          tr:nth-child(even) { background-color: #f9fafb; }
-          .footer { margin-top: 30px; text-align: center; color: #999; font-size: 11px; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: 'Kanit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 30px;
+            background: #f7f8fa;
+            color: #1a1a1a;
+          }
+          .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #4a7ba7;
+          }
+          h1 { 
+            color: #4a7ba7;
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 10px;
+          }
+          .meta { 
+            color: #666;
+            font-size: 14px;
+            margin-top: 15px;
+          }
+          .meta p {
+            margin: 5px 0;
+          }
+          .summary {
+            background: #f0f7ff;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+            border-left: 4px solid #4a7ba7;
+          }
+          .summary-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #4a7ba7;
+            margin-bottom: 10px;
+          }
+          table { 
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 13px;
+          }
+          th, td { 
+            border: 1px solid #e0e0e0;
+            padding: 12px 10px;
+            text-align: left;
+          }
+          th { 
+            background: #4a7ba7;
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+          }
+          tr:nth-child(even) { 
+            background: #f9fafb;
+          }
+          tr:hover {
+            background: #f0f7ff;
+          }
+          .number-col { text-align: center; font-weight: 600; }
+          .count-col { text-align: center; color: #ef4444; font-weight: 600; }
+          .date-col { color: #6b7280; font-size: 12px; }
+          .footer { 
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+          }
+          .actions {
+            margin-top: 30px;
+            text-align: center;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 6px;
+          }
+          .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Kanit', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 0 5px;
+            transition: all 0.2s;
+          }
+          .btn-primary {
+            background: #4a7ba7;
+            color: white;
+          }
+          .btn-primary:hover {
+            background: #3a6287;
+          }
+          .btn-secondary {
+            background: #666;
+            color: white;
+          }
+          .btn-secondary:hover {
+            background: #555;
+          }
           @media print {
-            body { padding: 10px; }
-            .no-print { display: none; }
+            body { 
+              padding: 0;
+              background: white;
+            }
+            .container {
+              box-shadow: none;
+              padding: 20px;
+            }
+            .actions { display: none; }
+            table { font-size: 11px; }
+            th, td { padding: 8px 6px; }
+          }
+          @page {
+            margin: 1cm;
           }
         </style>
       </head>
       <body>
-        <h1>รายงานรูปภาพทัวร์</h1>
-        <div class="meta">
-          <p>วันที่: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-          <p>จำนวนรูปภาพทั้งหมด: ${images.length} รูป</p>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>ลำดับ</th>
-              <th>ชื่อรูป</th>
-              <th>ประเทศ</th>
-              <th>Wholesale</th>
-              <th>รหัสทัวร์</th>
-              <th>จำนวนใช้ซ้ำ</th>
-              <th>วันที่อัปเดต</th>
-              <th>ใช้ล่าสุด</th>
-              <th>จำนวนโปรแกรม</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div class="container">
+          <div class="header">
+            <h1>รายงานรูปภาพทัวร์</h1>
+            <div class="meta">
+              <p><strong>วันที่สร้างรายงาน:</strong> ${new Date().toLocaleDateString('th-TH', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</p>
+            </div>
+          </div>
+          
+          <div class="summary">
+            <div class="summary-title">สรุปข้อมูล</div>
+            <p><strong>จำนวนรูปภาพทั้งหมด:</strong> ${images.length} รูป</p>
+            <p><strong>จำนวนการใช้งานรวม:</strong> ${images.reduce((sum, img) => sum + (img.file_count || 0), 0)} ครั้ง</p>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">ลำดับ</th>
+                <th style="width: 200px;">ชื่อรูป</th>
+                <th style="width: 80px;">รวมใช้ซ้ำ</th>
+                <th style="width: 80px;">Banner 1</th>
+                <th style="width: 80px;">Banner 2+</th>
+                <th style="width: 80px;">รายละเอียด</th>
+                <th style="width: 150px;">ประเทศ</th>
+                <th style="width: 100px;">วันที่อัปเดต</th>
+              </tr>
+            </thead>
+            <tbody>
     `;
     
     images.forEach((img, index) => {
-      const lastUsed = DataFormatter.formatDateThai(img.updatedAt) || '-';
+      // Count countries
+      const countryCount = {};
+      const imageCountries = img.countries || [];
+      imageCountries.forEach(country => {
+        const countryName = country.name_th || country.name_en || 'Unknown';
+        countryCount[countryName] = (countryCount[countryName] || 0) + 1;
+      });
+      const countries = Object.entries(countryCount)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], ['th', 'en']))
+        .map(([name, count]) => `${name} (${count})`)
+        .join(', ');
+      
       html += `
         <tr>
-          <td>${index + 1}</td>
-          <td>${img.name}</td>
-          <td>${countryTranslation[img.country] || img.country}</td>
-          <td>${img.wholesale || '-'}</td>
-          <td>${img.tourCode || '-'}</td>
-          <td>${img.usageCount}</td>
-          <td>${DataFormatter.formatDateThai(img.updatedAt) || '-'}</td>
-          <td>${lastUsed}</td>
-          <td>${img.programs.length}</td>
+          <td class="number-col">${index + 1}</td>
+          <td>${img.name || '-'}</td>
+          <td class="count-col">${img.file_count || 0}</td>
+          <td class="number-col">${img.first_banner_count || 0}</td>
+          <td class="number-col">${img.after_first_banner_count || 0}</td>
+          <td class="number-col">${img.day_detail_count || 0}</td>
+          <td>${countries || '-'}</td>
+          <td class="date-col">${formatDateThai(img.last_file_created_at) || '-'}</td>
         </tr>
       `;
     });
     
     html += `
-          </tbody>
-        </table>
-        <div class="footer">
-          <p>สร้างโดย Tour Image Manager - Tourwow</p>
-        </div>
-        <div class="no-print" style="margin-top: 20px; text-align: center;">
-          <button onclick="window.print()" style="padding: 10px 20px; background: #4a7ba7; color: white; border: none; border-radius: 4px; cursor: pointer;">พิมพ์ / บันทึกเป็น PDF</button>
-          <button onclick="window.close()" style="padding: 10px 20px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px;">ปิด</button>
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <p><strong>Tour Image Manager</strong> - ระบบจัดการรูปภาพทัวร์ Tourwow</p>
+            <p>สร้างโดยระบบอัตโนมัติ</p>
+          </div>
+          
+          <div class="actions">
+            <button onclick="window.print()" class="btn btn-primary">
+              <span>🖨️</span> พิมพ์ / บันทึกเป็น PDF
+            </button>
+            <button onclick="window.close()" class="btn btn-secondary">
+              <span>✕</span> ปิดหน้าต่าง
+            </button>
+          </div>
         </div>
       </body>
       </html>
